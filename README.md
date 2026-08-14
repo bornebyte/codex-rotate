@@ -34,7 +34,7 @@ a delete.
 Requires Go 1.22+.
 
 ```bash
-git clone https://github.com/<you>/codex-rotate.git
+git clone https://github.com/bornebyte/codex-rotate.git
 cd codex-rotate
 go build -o codex-rotate .
 sudo mv codex-rotate /usr/local/bin/        # or anywhere on your $PATH
@@ -43,7 +43,7 @@ sudo mv codex-rotate /usr/local/bin/        # or anywhere on your $PATH
 Or, without cloning:
 
 ```bash
-go install github.com/<you>/codex-rotate@latest
+go install github.com/bornebyte/codex-rotate@latest
 ```
 
 ## Quick start
