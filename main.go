@@ -26,6 +26,10 @@ Usage:
   codex-rotate current                          Show details of the active profile
   codex-rotate repair                           Accept the live auth.json as the active
                                                  profile's current state after drift
+  codex-rotate stats [name]                     Show live quota (5h/weekly used%, reset
+                                                 times), plan, and email for every
+                                                 profile — or just one — without
+                                                 switching into any of them
   codex-rotate help                             Show this message
 
 Files touched:
@@ -79,6 +83,8 @@ func main() {
 		err = cmdCurrent(paths, store)
 	case "repair":
 		err = cmdRepair(paths, store)
+	case "stats", "usage", "quota":
+		err = cmdStats(paths, store, args)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", cmd)
 		fmt.Print(usage)

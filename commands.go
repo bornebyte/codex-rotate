@@ -2,10 +2,13 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"text/tabwriter"
 	"time"
 )
@@ -380,6 +383,89 @@ func cmdRepair(p *Paths, s *Store) error {
 		return err
 	}
 	fmt.Printf("Recorded current auth.json contents as %q's latest session.\n", s.Active)
+	return nil
+}
+
+// ---------- stats ----------
+
+// cmdStats reports live quota (used%, reset time) for every tracked
+// profile, or just one if a name is given — without switching into any of
+// them. Each profile is queried by briefly spawning `codex app-server`
+// against a *copy* of its auth.json; see appserver.go for the protocol
+// details and why that's safe to do concurrently for parked profiles too.
+func cmdStats(p *Paths, s *Store, args []string) error {
+	if _, err := exec.LookPath("codex"); err != nil {
+		return fmt.Errorf("`codex` CLI not found on PATH — stats needs it (read-only) to query each account's rate limits")
+	}
+
+	names := sortedNames(s)
+	if len(args) > 0 {
+		if _, ok := s.Profiles[args[0]]; !ok {
+			return fmt.Errorf("no such profile %q — run `codex-rotate list`", args[0])
+		}
+		names = []string{args[0]}
+	}
+	if len(names) == 0 {
+		fmt.Println("No profiles tracked yet.")
+		return nil
+	}
+
+	type job struct{ name, path string }
+	jobs := make([]job, 0, len(names))
+	for _, n := range names {
+		path := p.profileFile(n)
+		if n == s.Active {
+			path = p.AuthPath
+		}
+		jobs = append(jobs, job{name: n, path: path})
+	}
+
+	results := make([]*accountStats, len(jobs))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 4) // cap concurrent `codex app-server` processes
+	for i := range jobs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+			defer cancel()
+			results[i] = fetchProfileStats(ctx, jobs[i].name, jobs[i].path)
+		}(i)
+	}
+	wg.Wait()
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(w, "  NAME\tEMAIL\tPLAN\t5H USED\t5H RESETS\tWEEKLY USED\tWEEKLY RESETS\tSTATUS")
+	for _, r := range results {
+		marker := " "
+		if r.Name == s.Active {
+			marker = "*"
+		}
+		status := "ok"
+		if r.Err != nil {
+			status = "error: " + r.Err.Error()
+		}
+		email := r.Email
+		if email == "" {
+			email = "-"
+		}
+		plan := r.Plan
+		if plan == "" {
+			plan = "-"
+		}
+		fmt.Fprintf(w, "%s %s\t%s\t%s\t%s%s\t%s\t%s%s\t%s\t%s\n",
+			marker, r.Name, email, plan,
+			windowWarning(r.Primary), formatPercent(r.Primary), formatReset(r.Primary),
+			windowWarning(r.Secondary), formatPercent(r.Secondary), formatReset(r.Secondary),
+			status)
+	}
+	w.Flush()
+
+	fmt.Println()
+	fmt.Println("5H = rolling 5-hour window, WEEKLY = rolling 7-day window (Codex's own /status buckets); ⚠ = 90%+ used.")
+	fmt.Println("Each row briefly runs `codex app-server` against a copy of that profile's auth.json — nothing is switched or written back.")
 	return nil
 }
 

@@ -60,6 +60,9 @@ codex-rotate capture alt-1 -n "Personal 1"
 # See everything you have:
 codex-rotate list
 
+# Check remaining quota and reset times for every account, no switching required:
+codex-rotate stats
+
 # Rotate back to "work" later (interactive picker if you omit the name):
 codex-rotate switch work
 ```
@@ -77,8 +80,41 @@ codex-rotate switch work
 | `describe <name> <text>` | Set or replace a free-text description. |
 | `current` | Show details of whichever profile is active right now. |
 | `repair` | If `auth.json` was changed outside this tool (e.g. a manual `codex login` refreshed the same account's token) and `list`/`current` report drift, run this to accept the new content as that profile's current state. |
+| `stats [name]` | Show live quota — 5-hour and weekly used%, reset times, plan, and email — for every tracked profile, or just one. No switching involved; see below for how. |
 
-Aliases: `ls`→`list`, `add`/`import`→`capture`, `rotate`/`use`→`switch`, `mv`→`rename`, `nick`→`nickname`, `desc`→`describe`, `whoami`→`current`.
+Aliases: `ls`→`list`, `add`/`import`→`capture`, `rotate`/`use`→`switch`, `mv`→`rename`, `nick`→`nickname`, `desc`→`describe`, `whoami`→`current`, `usage`/`quota`→`stats`.
+
+### `stats`: quota without switching
+
+```
+$ codex-rotate stats
+  NAME    EMAIL               PLAN  5H USED  5H RESETS            WEEKLY USED  WEEKLY RESETS         STATUS
+* work    user1@example.com  pro   69%      2h14m (Sep 14 18:00)  55%          6h02m (Sep 21 00:34)  ok
+  alt-1   user2@example.com  pro   ⚠ 92%    0h48m (Sep 14 16:34)  6%           6h18m (Sep 21 18:05)  ok
+  alt-2   -                  -     -        -                     -            -                     error: account/rateLimits/read: ...
+```
+
+Previously the only way to see this was to `switch` into every account and
+run `codex`'s own `/status`. `stats` instead spawns a short-lived
+`codex app-server` process per profile — the same JSON-RPC-over-stdio
+interface the Codex VS Code extension and Codex Desktop use internally
+(see [the app-server docs](https://developers.openai.com/codex/app-server))
+— and points it at a **copy** of that profile's `auth.json` sitting in a
+scratch directory. This is why it's safe to run against parked profiles
+without switching: the real `~/.codex/auth.json` and the parked
+`profiles/<name>.json` files are only ever read, never written, moved, or
+even opened for writing.
+
+Profiles are queried concurrently (capped at 4 at a time) with a
+25-second timeout each, so one stuck or unauthenticated profile can't hang
+the rest — it just shows up with `error: ...` in the STATUS column while
+the others report normally.
+
+This depends on the `codex` binary being on your `PATH` and speaking the
+`account/rateLimits/read` app-server method (Codex ≥ 0.130 or so); if
+OpenAI changes that protocol's field names again, `stats` degrades to
+blank `EMAIL`/`PLAN` columns rather than crashing outright — see the
+comments in `appserver.go` for exactly which fields it expects.
 
 ## How it works
 
