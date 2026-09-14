@@ -11,6 +11,7 @@ import (
 	"sync"
 	"text/tabwriter"
 	"time"
+	"unicode/utf8"
 )
 
 // ---------- list ----------
@@ -386,6 +387,64 @@ func cmdRepair(p *Paths, s *Store) error {
 	return nil
 }
 
+// ---------- table rendering with optional color ----------
+//
+// text/tabwriter (used by cmdList above) sizes columns by counting raw
+// bytes, and ANSI color codes are invisible-but-counted — so a colored
+// cell "looks" wider to tabwriter than it renders, and every column after
+// it drifts out of alignment. cmdStats needs colored cells, so it uses this
+// tiny hand-rolled aligner instead: column widths are computed from each
+// cell's visible text only, and color is applied *after* that width is
+// decided, never counted towards it.
+
+// tcell is one table cell: `plain` (no ANSI codes) is what column widths
+// are measured against, `display` is what actually gets printed and may be
+// `plain` wrapped in color codes.
+type tcell struct {
+	plain   string
+	display string
+}
+
+func plainCell(s string) tcell { return tcell{plain: s, display: s} }
+
+func colorCell(s, ansiCode string, enabled bool) tcell {
+	if enabled && ansiCode != "" {
+		return tcell{plain: s, display: ansiCode + s + ansiReset}
+	}
+	return tcell{plain: s, display: s}
+}
+
+// renderTable prints rows (the first of which is expected to be the
+// header) with columns padded to the widest *visible* cell in that column,
+// separated by a 2-space gutter — matching the look of the tabwriter tables
+// used elsewhere in this tool, but safe to mix with ANSI-colored cells.
+func renderTable(rows [][]tcell) {
+	if len(rows) == 0 {
+		return
+	}
+	cols := len(rows[0])
+	widths := make([]int, cols)
+	for _, row := range rows {
+		for i, c := range row {
+			if n := utf8.RuneCountInString(c.plain); n > widths[i] {
+				widths[i] = n
+			}
+		}
+	}
+	var b strings.Builder
+	for _, row := range rows {
+		for i, c := range row {
+			b.WriteString(c.display)
+			if i < cols-1 {
+				pad := widths[i] - utf8.RuneCountInString(c.plain)
+				b.WriteString(strings.Repeat(" ", pad+2))
+			}
+		}
+		b.WriteByte('\n')
+	}
+	fmt.Print(b.String())
+}
+
 // ---------- stats ----------
 
 // cmdStats reports live quota (used%, reset time) for every tracked
@@ -436,8 +495,14 @@ func cmdStats(p *Paths, s *Store, args []string) error {
 	}
 	wg.Wait()
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(w, "  NAME\tEMAIL\tPLAN\t5H USED\t5H RESETS\tWEEKLY USED\tWEEKLY RESETS\tSTATUS")
+	colorsEnabled := stdoutSupportsColor()
+
+	table := [][]tcell{{
+		plainCell("NAME"), plainCell("EMAIL"), plainCell("PLAN"),
+		plainCell("5H USED"), plainCell("5H LEFT"), plainCell("5H RESETS"),
+		plainCell("WEEKLY USED"), plainCell("WEEKLY LEFT"), plainCell("WEEKLY RESETS"),
+		plainCell("STATUS"),
+	}}
 	for _, r := range results {
 		marker := " "
 		if r.Name == s.Active {
@@ -455,16 +520,24 @@ func cmdStats(p *Paths, s *Store, args []string) error {
 		if plan == "" {
 			plan = "-"
 		}
-		fmt.Fprintf(w, "%s %s\t%s\t%s\t%s%s\t%s\t%s%s\t%s\t%s\n",
-			marker, r.Name, email, plan,
-			windowWarning(r.Primary), formatPercent(r.Primary), formatReset(r.Primary),
-			windowWarning(r.Secondary), formatPercent(r.Secondary), formatReset(r.Secondary),
-			status)
+		table = append(table, []tcell{
+			plainCell(marker + " " + r.Name),
+			plainCell(email),
+			plainCell(plan),
+			plainCell(windowWarning(r.Primary) + formatPercent(r.Primary)),
+			remainingCell(r.Primary, colorsEnabled),
+			plainCell(formatReset(r.Primary)),
+			plainCell(windowWarning(r.Secondary) + formatPercent(r.Secondary)),
+			remainingCell(r.Secondary, colorsEnabled),
+			plainCell(formatReset(r.Secondary)),
+			plainCell(status),
+		})
 	}
-	w.Flush()
+	renderTable(table)
 
 	fmt.Println()
 	fmt.Println("5H = rolling 5-hour window, WEEKLY = rolling 7-day window (Codex's own /status buckets); ⚠ = 90%+ used.")
+	fmt.Println("LEFT is remaining quota, colored red at ≤10%, yellow at ≤30%, green otherwise (set NO_COLOR=1 to disable).")
 	fmt.Println("Each row briefly runs `codex app-server` against a copy of that profile's auth.json — nothing is switched or written back.")
 	return nil
 }

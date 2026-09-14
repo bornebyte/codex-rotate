@@ -88,11 +88,18 @@ Aliases: `ls`→`list`, `add`/`import`→`capture`, `rotate`/`use`→`switch`, `
 
 ```
 $ codex-rotate stats
-  NAME    EMAIL               PLAN  5H USED  5H RESETS            WEEKLY USED  WEEKLY RESETS         STATUS
-* work    user1@example.com  pro   69%      2h14m (Sep 14 18:00)  55%          6h02m (Sep 21 00:34)  ok
-  alt-1   user2@example.com  pro   ⚠ 92%    0h48m (Sep 14 16:34)  6%           6h18m (Sep 21 18:05)  ok
-  alt-2   -                  -     -        -                     -            -                     error: account/rateLimits/read: ...
+  NAME    EMAIL               PLAN  5H USED  5H LEFT  5H RESETS            WEEKLY USED  WEEKLY LEFT  WEEKLY RESETS         STATUS
+* work    user1@example.com  pro   69%      31%      2h14m (Sep 14 18:00)  55%          45%          6h02m (Sep 21 00:34)  ok
+  alt-1   user2@example.com  pro   ⚠ 92%    8%       0h48m (Sep 14 16:34)  6%           94%          6h18m (Sep 21 18:05)  ok
+  alt-2   -                  -     -        -        -                     -            -            -                     error: account/rateLimits/read: ...
 ```
+
+The `LEFT` columns are colored by how much runway you actually have —
+green when you're fine, yellow once it's worth planning around, red once
+you're about to get locked out (thresholds: ≤30% left = yellow, ≤10% left =
+red). Color is skipped automatically when stdout isn't a terminal (piped to
+a file, etc.) or when `NO_COLOR` is set; the plain percentage is always
+printed either way, so no information is lost — just the color.
 
 Previously the only way to see this was to `switch` into every account and
 run `codex`'s own `/status`. `stats` instead spawns a short-lived

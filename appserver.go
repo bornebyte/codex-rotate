@@ -306,10 +306,70 @@ func formatReset(w *rateLimitWindow) string {
 }
 
 // windowWarning flags a window that's nearly exhausted, mirroring the "⚠"
-// convention checkDrift already uses elsewhere in this tool.
+// convention checkDrift already uses elsewhere in this tool. It's plain
+// text on purpose (unlike the LEFT column below) so the warning still
+// shows up even with colors off or output piped to a file.
 func windowWarning(w *rateLimitWindow) string {
 	if w != nil && w.UsedPercent >= 90 {
 		return "⚠ "
 	}
 	return ""
+}
+
+// ---------- colored "remaining" column ----------
+//
+// remaining% is just 100-used%, but showing it as its own colored column
+// answers "how worried should I be?" at a glance instead of making you do
+// the subtraction and compare it to a mental threshold yourself.
+
+const (
+	ansiRed    = "\x1b[31m"
+	ansiYellow = "\x1b[33m"
+	ansiGreen  = "\x1b[32m"
+	ansiReset  = "\x1b[0m"
+
+	// Thresholds are on *remaining* percent, not used percent.
+	remainingCriticalPct = 10.0 // <=10% left: red — you're about to get locked out
+	remainingLowPct      = 30.0 // <=30% left: yellow — worth planning around
+)
+
+// remainingColor picks the ANSI color for a remaining-percent value.
+func remainingColor(remainingPct float64) string {
+	switch {
+	case remainingPct <= remainingCriticalPct:
+		return ansiRed
+	case remainingPct <= remainingLowPct:
+		return ansiYellow
+	default:
+		return ansiGreen
+	}
+}
+
+// stdoutSupportsColor is a minimal, stdlib-only isatty check: color is
+// switched off automatically when stdout is redirected to a file or pipe
+// (raw ANSI codes in a saved log are just noise), and NO_COLOR is honored
+// per the https://no-color.org convention if the person sets it.
+func stdoutSupportsColor() bool {
+	if os.Getenv("NO_COLOR") != "" {
+		return false
+	}
+	info, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
+}
+
+// remainingCell renders one window's remaining-quota percentage as a table
+// cell, colored red/yellow/green by how urgent it is. The plain "43%" text
+// is identical whether or not colorsEnabled is true — only the ANSI
+// wrapping is conditional — so piping the output through `cat` or a NO_COLOR
+// terminal never loses information, just the color.
+func remainingCell(w *rateLimitWindow, colorsEnabled bool) tcell {
+	if w == nil {
+		return plainCell("-")
+	}
+	remainingPct := 100 - w.UsedPercent
+	text := fmt.Sprintf("%.0f%%", remainingPct)
+	return colorCell(text, remainingColor(remainingPct), colorsEnabled)
 }
