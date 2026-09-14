@@ -47,12 +47,22 @@ type Paths struct {
 	StorePath   string
 }
 
+// resolvePaths honors $CODEX_HOME the same way `codex` itself does, falling
+// back to ~/.codex only when it's unset. This matters because the real
+// codex binary reads CODEX_HOME if present — appserver.go relies on
+// exactly that to sandbox each profile's stats check into a scratch dir —
+// so if resolvePaths ignored it here too, anyone with CODEX_HOME set would
+// have codex-rotate silently managing a different auth.json than the one
+// `codex` actually reads, with no error to signal the mismatch.
 func resolvePaths() (*Paths, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("resolve home directory: %w", err)
+	codexDir := os.Getenv("CODEX_HOME")
+	if codexDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("resolve home directory: %w", err)
+		}
+		codexDir = filepath.Join(home, ".codex")
 	}
-	codexDir := filepath.Join(home, ".codex")
 	profilesDir := filepath.Join(codexDir, "profiles")
 	return &Paths{
 		CodexDir:    codexDir,
