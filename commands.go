@@ -74,6 +74,17 @@ func checkDrift(p *Paths, s *Store) {
 	fmt.Println()
 }
 
+// cmdProfileNames prints tracked profile names, one per line, with no
+// header/marker/formatting. It exists solely for the shell completion
+// scripts in completion.go to shell out to — never documented in `help`,
+// never meant to be typed by a person.
+func cmdProfileNames(s *Store) error {
+	for _, n := range sortedNames(s) {
+		fmt.Println(n)
+	}
+	return nil
+}
+
 // ---------- capture ----------
 
 func cmdCapture(p *Paths, s *Store, args []string) error {
@@ -499,8 +510,8 @@ func cmdStats(p *Paths, s *Store, args []string) error {
 
 	table := [][]tcell{{
 		plainCell("NAME"), plainCell("EMAIL"), plainCell("PLAN"),
-		plainCell("5H USED"), plainCell("5H LEFT"), plainCell("5H RESETS"),
-		plainCell("WEEKLY USED"), plainCell("WEEKLY LEFT"), plainCell("WEEKLY RESETS"),
+		plainCell("PRIMARY USED"), plainCell("PRIMARY LEFT"), plainCell("PRIMARY RESETS"),
+		plainCell("SECONDARY USED"), plainCell("SECONDARY LEFT"), plainCell("SECONDARY RESETS"),
 		plainCell("STATUS"),
 	}}
 	for _, r := range results {
@@ -510,7 +521,7 @@ func cmdStats(p *Paths, s *Store, args []string) error {
 		}
 		status := "ok"
 		if r.Err != nil {
-			status = "error: " + r.Err.Error()
+			status = "error: " + summarizeAppServerError(r.Err)
 		}
 		email := r.Email
 		if email == "" {
@@ -536,9 +547,9 @@ func cmdStats(p *Paths, s *Store, args []string) error {
 	renderTable(table)
 
 	fmt.Println()
-	fmt.Println("5H = rolling 5-hour window, WEEKLY = rolling 7-day window (Codex's own /status buckets); ⚠ = 90%+ used.")
-	fmt.Println("LEFT is remaining quota, colored red at ≤10%, yellow at ≤30%, green otherwise (set NO_COLOR=1 to disable).")
-	fmt.Println("Each row briefly runs `codex app-server` against a copy of that profile's auth.json — nothing is switched or written back.")
+	fmt.Println("PRIMARY/SECONDARY are whatever two usage windows your plan reports (Codex's own /status buckets) — the real window length is shown in brackets next to each reset time, since it varies by plan; free/Go accounts often report one long window and no secondary one at all.")
+	fmt.Println("⚠ = 90%+ used. LEFT is remaining quota, colored red at ≤10%, yellow at ≤30%, green otherwise (set NO_COLOR=1 to disable).")
+	fmt.Println("Each row briefly runs `codex app-server` against a copy of that profile's auth.json — nothing is switched or written back. STATUS errors reflect that profile's actual stored credentials (e.g. an expired token) — not a bug in this command.")
 	return nil
 }
 

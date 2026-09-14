@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -302,7 +303,33 @@ func formatReset(w *rateLimitWindow) string {
 	}
 	h := int(d.Hours())
 	m := int(d.Minutes()) % 60
-	return fmt.Sprintf("%dh%02dm (%s)", h, m, t.Local().Format("Jan 2 15:04"))
+	out := fmt.Sprintf("%dh%02dm (%s)", h, m, t.Local().Format("Jan 2 15:04"))
+	if wd := formatWindowDuration(w.WindowDurationMins); wd != "" {
+		out += fmt.Sprintf(" [%s window]", wd)
+	}
+	return out
+}
+
+// formatWindowDuration renders a window's actual length from the minutes
+// app-server reports for it.
+//
+// This exists because "primary = 5h, secondary = weekly" — which is what
+// Pro/Team plans report, and what an earlier version of this file assumed
+// for the column headers — turned out not to hold for free/Go plan
+// accounts: observed data shows a single `primary` window with resets
+// anywhere from ~10 to ~30 days out, and no `secondary` window at all.
+// Rather than assert a duration that's sometimes just wrong, the table
+// headers now say PRIMARY/SECONDARY (see cmdStats) and the *real* window
+// length is printed here, per row, from whatever the account reports.
+func formatWindowDuration(mins float64) string {
+	if mins <= 0 {
+		return ""
+	}
+	hours := mins / 60
+	if hours < 24 {
+		return fmt.Sprintf("%.0fh", hours)
+	}
+	return fmt.Sprintf("%.0fd", hours/24)
 }
 
 // windowWarning flags a window that's nearly exhausted, mirroring the "⚠"
@@ -372,4 +399,40 @@ func remainingCell(w *rateLimitWindow, colorsEnabled bool) tcell {
 	remainingPct := 100 - w.UsedPercent
 	text := fmt.Sprintf("%.0f%%", remainingPct)
 	return colorCell(text, remainingColor(remainingPct), colorsEnabled)
+}
+
+// summarizeAppServerError turns a raw app-server error into one short,
+// single-line message safe to put in a table cell.
+//
+// For HTTP failures, app-server's error message embeds the *entire*
+// upstream response — status line, headers, and a multi-line JSON body —
+// which is exactly what you want in a log but unreadable jammed into a
+// table's STATUS column. Known authentication failures (an expired or
+// unparsable stored token — the most common real-world cause, since
+// codex-rotate only ever reads a profile's stored auth.json and can't
+// refresh it for you) get a plain-English, actionable message. Anything
+// else is collapsed onto one line and capped in length so a single bad
+// row can't blow out the whole table's width.
+func summarizeAppServerError(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	lower := strings.ToLower(msg)
+	const howToFix = "switch into it, run `codex login`, then `capture` it again"
+	switch {
+	case strings.Contains(lower, "token_expired"):
+		return "auth token expired — " + howToFix
+	case strings.Contains(lower, "could not parse your authentication token"),
+		strings.Contains(lower, "unauthorized_unknown"):
+		return "auth token invalid — " + howToFix
+	case strings.Contains(lower, "401"):
+		return "unauthorized (401) — token likely needs refreshing; " + howToFix
+	}
+	collapsed := strings.Join(strings.Fields(msg), " ")
+	const maxLen = 140
+	if len(collapsed) > maxLen {
+		collapsed = collapsed[:maxLen] + "…"
+	}
+	return collapsed
 }

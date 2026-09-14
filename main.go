@@ -30,6 +30,8 @@ Usage:
                                                  times), plan, and email for every
                                                  profile — or just one — without
                                                  switching into any of them
+  codex-rotate completion <bash|zsh|fish>       Print a shell completion script — see
+                                                 README for install instructions
   codex-rotate help                             Show this message
 
 Files touched:
@@ -52,6 +54,12 @@ func main() {
 
 	if cmd == "help" || cmd == "-h" || cmd == "--help" {
 		fmt.Print(usage)
+		return
+	}
+	if cmd == "completion" {
+		if err := cmdCompletion(args); err != nil {
+			fatal(err)
+		}
 		return
 	}
 
@@ -85,6 +93,8 @@ func main() {
 		err = cmdRepair(paths, store)
 	case "stats", "usage", "quota":
 		err = cmdStats(paths, store, args)
+	case "__profiles": // internal: used by the shell completion scripts only
+		err = cmdProfileNames(store)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", cmd)
 		fmt.Print(usage)

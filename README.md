@@ -81,6 +81,7 @@ codex-rotate switch work
 | `current` | Show details of whichever profile is active right now. |
 | `repair` | If `auth.json` was changed outside this tool (e.g. a manual `codex login` refreshed the same account's token) and `list`/`current` report drift, run this to accept the new content as that profile's current state. |
 | `stats [name]` | Show live quota — 5-hour and weekly used%, reset times, plan, and email — for every tracked profile, or just one. No switching involved; see below for how. |
+| `completion <bash\|zsh\|fish>` | Print a shell completion script. See below for setup. |
 
 Aliases: `ls`→`list`, `add`/`import`→`capture`, `rotate`/`use`→`switch`, `mv`→`rename`, `nick`→`nickname`, `desc`→`describe`, `whoami`→`current`, `usage`/`quota`→`stats`.
 
@@ -88,11 +89,19 @@ Aliases: `ls`→`list`, `add`/`import`→`capture`, `rotate`/`use`→`switch`, `
 
 ```
 $ codex-rotate stats
-  NAME    EMAIL               PLAN  5H USED  5H LEFT  5H RESETS            WEEKLY USED  WEEKLY LEFT  WEEKLY RESETS         STATUS
-* work    user1@example.com  pro   69%      31%      2h14m (Sep 14 18:00)  55%          45%          6h02m (Sep 21 00:34)  ok
-  alt-1   user2@example.com  pro   ⚠ 92%    8%       0h48m (Sep 14 16:34)  6%           94%          6h18m (Sep 21 18:05)  ok
-  alt-2   -                  -     -        -        -                     -            -            -                     error: account/rateLimits/read: ...
+  NAME    EMAIL               PLAN  PRIMARY USED  PRIMARY LEFT  PRIMARY RESETS                     SECONDARY USED  SECONDARY LEFT  SECONDARY RESETS  STATUS
+* work    user1@example.com  pro   69%           31%           2h14m (Sep 14 18:00) [5h window]    55%             45%             6h02m (Sep 21 00:34) [7d window]  ok
+  alt-1   user2@example.com  go    ⚠ 100%        0%            345h55m (Sep 29 10:00) [30d window]  -               -               -                 ok
+  alt-2   -                  -     -             -             -                                    -               -               -                 error: auth token expired — switch into it, run `codex login`, then `capture` it again
 ```
+
+`PRIMARY`/`SECONDARY` are deliberately generic labels, not "5h"/"weekly" —
+those durations only hold for some plans. A free or Go plan account often
+reports a single long-lived `PRIMARY` window (weeks, not hours) and no
+`SECONDARY` window at all, while Pro/Team plans report a genuine 5-hour +
+7-day pair. Rather than assert a duration that's sometimes wrong, the real
+window length is printed in brackets next to each reset time, straight from
+what the account itself reports.
 
 The `LEFT` columns are colored by how much runway you actually have —
 green when you're fine, yellow once it's worth planning around, red once
@@ -100,6 +109,12 @@ you're about to get locked out (thresholds: ≤30% left = yellow, ≤10% left =
 red). Color is skipped automatically when stdout isn't a terminal (piped to
 a file, etc.) or when `NO_COLOR` is set; the plain percentage is always
 printed either way, so no information is lost — just the color.
+
+A `STATUS` error means exactly what it says about *that profile's stored
+credentials* — most commonly an expired or invalid token — not a bug in
+`stats` itself. Fix it the same way you'd fix drift: `codex-rotate switch
+<name>` to bring it live, `codex login` to refresh it, then `codex-rotate
+capture <name>` again to re-record it.
 
 Previously the only way to see this was to `switch` into every account and
 run `codex`'s own `/status`. `stats` instead spawns a short-lived
@@ -122,6 +137,47 @@ This depends on the `codex` binary being on your `PATH` and speaking the
 OpenAI changes that protocol's field names again, `stats` degrades to
 blank `EMAIL`/`PLAN` columns rather than crashing outright — see the
 comments in `appserver.go` for exactly which fields it expects.
+
+## Shell completion
+
+`codex-rotate completion <shell>` prints a completion script for bash, zsh,
+or fish. Every script dynamically completes profile names for `switch`,
+`park`, `rename`, `nickname`, `describe`, and `stats` by shelling out to a
+hidden `codex-rotate __profiles` subcommand (one name per line, no
+formatting) — so `switch <TAB>` completes to your actual profiles, not just
+the word "switch".
+
+**bash** — either add to `~/.bashrc`:
+
+```bash
+eval "$(codex-rotate completion bash)"
+```
+
+or install it system-wide (picked up automatically by bash-completion):
+
+```bash
+codex-rotate completion bash | sudo tee /etc/bash_completion.d/codex-rotate
+```
+
+**zsh** — save it as a file named `_codex-rotate` somewhere in your
+`$fpath`, then start a new shell:
+
+```bash
+codex-rotate completion zsh > "${fpath[1]}/_codex-rotate"
+```
+
+If completions don't show up, your `~/.zshrc` may not be running
+`compinit` — add `autoload -U compinit && compinit` and restart the shell.
+
+**fish** — fish auto-loads anything in its completions directory, so this
+is a one-time step:
+
+```fish
+codex-rotate completion fish > ~/.config/fish/completions/codex-rotate.fish
+```
+
+After installing, `codex-rotate swi<TAB>` completes to `switch`, and
+`codex-rotate switch <TAB>` completes to your tracked profile names.
 
 ## How it works
 
