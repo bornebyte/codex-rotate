@@ -1,6 +1,11 @@
 package main
 
-import "fmt"
+import (
+	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
+)
 
 // cmdCompletion prints a shell completion script for bash, zsh, or fish.
 // It's handled before paths/store are loaded (see main.go) so that sourcing
@@ -13,8 +18,11 @@ import "fmt"
 // what lets `switch <TAB>`, `park <TAB>`, etc. complete to your *actual*
 // profile names instead of only completing the subcommand itself.
 func cmdCompletion(args []string) error {
+	if len(args) == 2 && args[0] == "bash" && args[1] == "--install" {
+		return installBashCompletion()
+	}
 	if len(args) != 1 {
-		return fmt.Errorf("usage: codex-rotate completion <bash|zsh|fish>")
+		return fmt.Errorf("usage: codex-rotate completion <bash|zsh|fish> [--install]")
 	}
 	switch args[0] {
 	case "bash":
@@ -29,19 +37,59 @@ func cmdCompletion(args []string) error {
 	return nil
 }
 
+// installBashCompletion enables completion for future Bash shells without
+// making `completion bash` unsafe to use in command substitution. The latter
+// must print only shell code because users commonly run:
+//
+//	eval "$(codex-rotate completion bash)"
+func installBashCompletion() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve home directory: %w", err)
+	}
+	bashrc := filepath.Join(home, ".bashrc")
+	line := []byte(`eval "$(codex-rotate completion bash)"`)
+
+	data, err := os.ReadFile(bashrc)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read %s: %w", bashrc, err)
+	}
+	if bytes.Contains(data, line) {
+		fmt.Printf("Bash completion is already enabled in %s.\n", bashrc)
+		return nil
+	}
+
+	f, err := os.OpenFile(bashrc, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", bashrc, err)
+	}
+	defer f.Close()
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		if _, err := f.WriteString("\n"); err != nil {
+			return fmt.Errorf("update %s: %w", bashrc, err)
+		}
+	}
+	if _, err := f.Write(append(line, '\n')); err != nil {
+		return fmt.Errorf("update %s: %w", bashrc, err)
+	}
+	fmt.Printf("Enabled Bash completion in %s. Open a new shell to use it.\n", bashrc)
+	return nil
+}
+
 // commandsForCompletion must track the `switch cmd` cases in main.go —
 // every top-level command name and alias, plus `completion` and `help`.
 // It deliberately excludes `__profiles`, which exists only for these
 // scripts to call and was never meant to be typed or suggested.
-const commandWordsForCompletion = "list ls capture add import switch rotate use park rename mv " +
-	"nickname nick describe desc current whoami repair stats usage quota completion help"
+const commandWordsForCompletion = "list ls capture add import switch swap rotate use park rename mv " +
+	"delete del remove rm nickname nick describe desc current whoami repair stats usage quota completion help"
 
 // profileArgCommandWords are the subcommands whose very next argument is an
 // existing profile name — that's where `__profiles` output gets suggested.
-const profileArgCommandWords = "switch rotate use park rename mv nickname nick describe desc stats usage quota"
+const profileArgCommandWords = "switch swap rotate use park rename mv delete del remove rm nickname nick describe desc stats usage quota"
 
 const bashCompletionScript = `# bash completion for codex-rotate
 # Install (pick one):
+#   codex-rotate completion bash --install
 #   echo 'eval "$(codex-rotate completion bash)"' >> ~/.bashrc
 #   codex-rotate completion bash | sudo tee /etc/bash_completion.d/codex-rotate
 
@@ -56,7 +104,7 @@ _codex_rotate_completions() {
     fi
 
     case "${prev}" in
-        switch|rotate|use|park|rename|mv|nickname|nick|describe|desc|stats|usage|quota)
+        switch|swap|rotate|use|park|rename|mv|delete|del|remove|rm|nickname|nick|describe|desc|stats|usage|quota)
             COMPREPLY=( $(compgen -W "$(codex-rotate __profiles 2>/dev/null)" -- "${cur}") )
             return 0
             ;;

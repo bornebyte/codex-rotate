@@ -2,7 +2,7 @@
 
 A small, dependency-free Go CLI for rotating between multiple [OpenAI Codex CLI](https://github.com/openai/codex) accounts on the same machine.
 
-If you juggle several Codex accounts and switch to a fresh one whenever the current one hits its usage quota, `codex-rotate` keeps every account's `auth.json` safely on disk, lets you label them, and swaps the active one in and out with a single command — **nothing is ever deleted**, only moved.
+If you juggle several Codex accounts and switch to a fresh one whenever the current one hits its usage quota, `codex-rotate` keeps every account's `auth.json` safely on disk, lets you label them, and swaps the active one in and out with a single command. You can rename, describe, or explicitly delete profiles too.
 
 ```
 $ codex-rotate list
@@ -26,8 +26,8 @@ than one account, the naive workflow is:
 
 `codex-rotate` formalizes step 2: it parks the outgoing account's
 `auth.json` into `~/.codex/profiles/<name>.json` and restores the incoming
-one in its place — an atomic rename in each direction, never a copy, never
-a delete.
+one in its place — an atomic rename in each direction, never a copy or an
+implicit delete.
 
 ## Install
 
@@ -65,6 +65,11 @@ codex-rotate stats
 
 # Rotate back to "work" later (interactive picker if you omit the name):
 codex-rotate switch work
+
+# If work's token expires, bring it back, log in again, and update the same profile:
+codex-rotate switch work
+codex login
+codex-rotate capture work
 ```
 
 ## Commands
@@ -74,16 +79,18 @@ codex-rotate switch work
 | `list` | Show every tracked profile, which one is active, and when each was last used. Also flags "drift" (see below). |
 | `capture <name> [-n nick] [-d desc]` | Register the file currently at `~/.codex/auth.json` as a new profile and mark it active. Use right after `codex login`. |
 | `switch [name]` | Park the active profile and restore `<name>` in its place. No name → interactive numbered picker. |
+| `swap [name]` | Swap in `<name>` whether the current profile is still live or already parked; an untracked live `auth.json` is preserved in a private backup. |
 | `park [name]` | Move the active profile's `auth.json` into storage and leave nothing active. Do this *before* running `codex login` again, so the outgoing session isn't clobbered. |
 | `rename <old> <new>` | Rename a profile, including its on-disk file if parked. |
+| `delete <name>` | Delete an inactive profile and its parked credentials. Park the profile first if it is active. |
 | `nickname <name> <text>` | Set or replace a display nickname. |
-| `describe <name> <text>` | Set or replace a free-text description. |
+| `describe <name> [text]` | Set or replace a free-text description; omit the text to clear it. |
 | `current` | Show details of whichever profile is active right now. |
 | `repair` | If `auth.json` was changed outside this tool (e.g. a manual `codex login` refreshed the same account's token) and `list`/`current` report drift, run this to accept the new content as that profile's current state. |
 | `stats [name]` | Show live quota — 5-hour and weekly used%, reset times, plan, and email — for every tracked profile, or just one. No switching involved; see below for how. |
-| `completion <bash\|zsh\|fish>` | Print a shell completion script. See below for setup. |
+| `completion <bash\|zsh\|fish>` | Print a shell completion script. `completion bash --install` enables Bash completion in one command. |
 
-Aliases: `ls`→`list`, `add`/`import`→`capture`, `rotate`/`use`→`switch`, `mv`→`rename`, `nick`→`nickname`, `desc`→`describe`, `whoami`→`current`, `usage`/`quota`→`stats`.
+Aliases: `ls`→`list`, `add`/`import`→`capture`, `rotate`/`use`→`switch`, `mv`→`rename`, `del`/`remove`/`rm`→`delete`, `nick`→`nickname`, `desc`→`describe`, `whoami`→`current`, `usage`/`quota`→`stats`. `swap` is the forgiving rotation command described above.
 
 ### `stats`: quota without switching
 
@@ -142,7 +149,7 @@ comments in `appserver.go` for exactly which fields it expects.
 
 `codex-rotate completion <shell>` prints a completion script for bash, zsh,
 or fish. Every script dynamically completes profile names for `switch`,
-`park`, `rename`, `nickname`, `describe`, and `stats` by shelling out to a
+`swap`, `park`, `rename`, `delete`, `nickname`, `describe`, and `stats` by shelling out to a
 hidden `codex-rotate __profiles` subcommand (one name per line, no
 formatting) — so `switch <TAB>` completes to your actual profiles, not just
 the word "switch".
@@ -151,6 +158,13 @@ the word "switch".
 
 ```bash
 eval "$(codex-rotate completion bash)"
+```
+
+Or enable it in one command. This appends the same line to `~/.bashrc` and
+does not add a duplicate if it is already present:
+
+```bash
+codex-rotate completion bash --install
 ```
 
 or install it system-wide (picked up automatically by bash-completion):
@@ -183,9 +197,9 @@ After installing, `codex-rotate swi<TAB>` completes to `switch`, and
 
 - **One live copy.** Only the *active* profile's bytes ever sit at
   `~/.codex/auth.json`; every other profile's file lives at
-  `~/.codex/profiles/<name>.json`. Rotating is exactly two `os.Rename`
-  calls — atomic on the same filesystem, so a crash mid-rotation can't
-  leave you with zero or two copies of a session.
+  `~/.codex/profiles/<name>.json`. A normal rotation is exactly two
+  `os.Rename` calls; `swap` adds one private backup rename when it encounters
+  an untracked live `auth.json`.
 - **Metadata is separate from credentials.** Nicknames, descriptions, and
   timestamps live in `~/.codex/profiles/store.json`, written with a
   write-temp-then-rename pattern so it's never left half-written.
@@ -215,8 +229,9 @@ inside it for testing.
 
 ## Safety notes
 
-- `codex-rotate` never calls `os.Remove` on a credential file. The only
-  destructive-looking operation is `os.Rename`, and only ever between
+- `codex-rotate` only removes credential bytes when you explicitly run
+  `delete`. The active profile cannot be deleted directly; park it first,
+  then delete the parked profile. Normal switching only renames files between
   `auth.json` and `profiles/<name>.json`.
 - If you `codex login` into a new account **without** running `park`
   first, the outgoing account's token is overwritten by the OS-level write

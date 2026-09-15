@@ -1,6 +1,6 @@
 // Command codex-rotate manages multiple OpenAI Codex CLI (`codex`) auth.json
 // profiles on one machine, so you can rotate between accounts when one hits
-// its usage quota without ever deleting a session's credentials.
+// its usage quota without losing a session unless you explicitly delete it.
 package main
 
 import (
@@ -17,12 +17,16 @@ Usage:
                                                  as a new profile and mark it active
   codex-rotate switch [name]                    Rotate to another profile (interactive
                                                  picker if no name given)
+  codex-rotate swap [name]                      Swap in a profile even if the current
+                                                 auth.json has no active marker
   codex-rotate park [name]                      Move the active profile's auth.json into
                                                  storage without activating anything else
                                                  (do this before a fresh 'codex login')
   codex-rotate rename <old> <new>               Rename a profile
+  codex-rotate delete <name>                    Delete an inactive profile and its stored
+                                                 credentials (park it first if active)
   codex-rotate nickname <name> <nick...>        Set/replace a profile's nickname
-  codex-rotate describe <name> <desc...>        Set/replace a profile's description
+  codex-rotate describe <name> [desc...]        Set/replace or clear a profile's description
   codex-rotate current                          Show details of the active profile
   codex-rotate repair                           Accept the live auth.json as the active
                                                  profile's current state after drift
@@ -30,8 +34,8 @@ Usage:
                                                  times), plan, and email for every
                                                  profile — or just one — without
                                                  switching into any of them
-  codex-rotate completion <bash|zsh|fish>       Print a shell completion script — see
-                                                 README for install instructions
+  codex-rotate completion <bash|zsh|fish>       Print a shell completion script
+  codex-rotate completion bash --install        Add Bash completion to ~/.bashrc
   codex-rotate help                             Show this message
 
 Files touched:
@@ -39,8 +43,8 @@ Files touched:
   ~/.codex/profiles/<name>.json    Parked (inactive) profiles
   ~/.codex/profiles/store.json     Metadata: nicknames, descriptions, timestamps
 
-Nothing is ever deleted — profiles are only moved between ~/.codex/auth.json
-and ~/.codex/profiles/, so credentials are never lost, only relocated.
+Profiles are only deleted when you explicitly run 'delete'. The active profile
+must be parked first, so a live auth.json cannot be erased accidentally.
 `
 
 func main() {
@@ -81,8 +85,12 @@ func main() {
 		err = cmdPark(paths, store, args)
 	case "switch", "rotate", "use":
 		err = cmdSwitch(paths, store, args)
+	case "swap":
+		err = cmdSwap(paths, store, args)
 	case "rename", "mv":
 		err = cmdRename(paths, store, args)
+	case "delete", "del", "remove", "rm":
+		err = cmdDelete(paths, store, args)
 	case "nickname", "nick":
 		err = cmdNickname(paths, store, args)
 	case "describe", "desc":

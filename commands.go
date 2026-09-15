@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +14,8 @@ import (
 	"time"
 	"unicode/utf8"
 )
+
+var errUntrackedLiveAuth = errors.New("auth.json exists but no profile is marked active")
 
 // ---------- list ----------
 
@@ -200,38 +203,107 @@ func doPark(p *Paths, s *Store, name string) error {
 // ---------- switch ----------
 
 func cmdSwitch(p *Paths, s *Store, args []string) error {
+	if len(args) > 1 {
+		return fmt.Errorf("usage: codex-rotate switch [name]")
+	}
 	if len(args) == 0 {
 		return interactiveSwitch(p, s)
 	}
 	return switchTo(p, s, args[0])
 }
 
+// cmdSwap is intentionally a separate entry point even though it uses the
+// same rotation machinery as switch. `swap` is commonly used after a user has
+// either left the current auth.json live or already parked it, so keeping the
+// command explicit makes that behavior easy to test and document.
+func cmdSwap(p *Paths, s *Store, args []string) error {
+	if len(args) > 1 {
+		return fmt.Errorf("usage: codex-rotate swap [name]")
+	}
+	if len(args) == 0 {
+		return interactiveSwitch(p, s)
+	}
+	return swapTo(p, s, args[0])
+}
+
 func switchTo(p *Paths, s *Store, name string) error {
+	return rotateTo(p, s, name, false)
+}
+
+// swapTo is the forgiving form of rotation. It accepts a live auth.json even
+// when store.json has no active marker. Since there is no reliable profile
+// name to use for that file, it preserves it in a private, uniquely named
+// backup before restoring the requested profile.
+func swapTo(p *Paths, s *Store, name string) error {
+	return rotateTo(p, s, name, true)
+}
+
+func rotateTo(p *Paths, s *Store, name string, allowUntrackedLive bool) error {
 	meta, ok := s.Profiles[name]
 	if !ok {
 		return fmt.Errorf("no such profile %q — run `codex-rotate list`", name)
 	}
-	if s.Active == name {
+	if s.Active == name && fileExists(p.AuthPath) {
 		fmt.Printf("%q is already active.\n", name)
 		return nil
-	}
-	if s.Active != "" {
-		if err := doPark(p, s, s.Active); err != nil {
-			return fmt.Errorf("could not park current profile %q before switching: %w", s.Active, err)
-		}
 	}
 	src := p.profileFile(name)
 	if !fileExists(src) {
 		return fmt.Errorf("profile %q has no stored auth file at %s — it may have been moved or edited outside codex-rotate", name, src)
 	}
+	targetHash, err := hashFile(src)
+	if err != nil {
+		return fmt.Errorf("hash stored auth for %q: %w", name, err)
+	}
+
+	// Normally Active tells us whether auth.json is still live or all profiles
+	// are parked. Recover the two harmlessly inconsistent states too: a live
+	// file with a missing active marker, and an active marker whose profile was
+	// parked before the metadata was saved. The hash check prevents us from
+	// guessing which profile owns an untracked auth.json. `swap` additionally
+	// allows that last state and preserves the unknown file before replacing it.
+	untrackedLive := false
+	if err := reconcileLiveProfile(p, s); err != nil {
+		if !allowUntrackedLive || !errors.Is(err, errUntrackedLiveAuth) {
+			return err
+		}
+		untrackedLive = true
+	}
+	if s.Active == name && fileExists(p.AuthPath) {
+		meta.SHA256 = targetHash
+		if err := saveStore(p, s); err != nil {
+			return err
+		}
+		fmt.Printf("%q is already active.\n", name)
+		return nil
+	}
+
+	var preserved string
+	if untrackedLive {
+		preserved, err = preserveUntrackedAuth(p)
+		if err != nil {
+			return err
+		}
+	}
+	if s.Active != "" {
+		if err := doPark(p, s, s.Active); err != nil {
+			if preserved != "" {
+				_ = os.Rename(preserved, p.AuthPath)
+			}
+			return fmt.Errorf("could not park current profile %q before switching: %w", s.Active, err)
+		}
+	}
 	if err := os.Rename(src, p.AuthPath); err != nil {
+		if preserved != "" {
+			if restoreErr := os.Rename(preserved, p.AuthPath); restoreErr != nil {
+				return fmt.Errorf("restore %q into place: %w (also could not restore the previous auth.json: %v)", name, err, restoreErr)
+			}
+		}
 		return fmt.Errorf("restore %q into place: %w", name, err)
 	}
 	now := time.Now()
 	meta.LastUsedAt = &now
-	if h, err := hashFile(p.AuthPath); err == nil {
-		meta.SHA256 = h
-	}
+	meta.SHA256 = targetHash
 	s.Active = name
 
 	if err := saveStore(p, s); err != nil {
@@ -242,6 +314,83 @@ func switchTo(p *Paths, s *Store, name string) error {
 		label = fmt.Sprintf("%s (%s)", name, meta.Nickname)
 	}
 	fmt.Printf("Switched to %s.\n", label)
+	if preserved != "" {
+		fmt.Printf("Preserved the untracked previous auth.json at %s.\n", preserved)
+	}
+	return nil
+}
+
+// preserveUntrackedAuth moves an auth.json whose owner is unknown out of the
+// way before a swap. The backup is deliberately not put under a profile name:
+// assigning unknown credentials to a named account would be worse than asking
+// the user to capture them later.
+func preserveUntrackedAuth(p *Paths) (string, error) {
+	f, err := os.CreateTemp(p.ProfilesDir, ".codex-rotate-untracked-auth-*.json")
+	if err != nil {
+		return "", fmt.Errorf("create auth.json backup: %w", err)
+	}
+	backup := f.Name()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(backup)
+		return "", fmt.Errorf("prepare auth.json backup: %w", err)
+	}
+	if err := os.Remove(backup); err != nil {
+		return "", fmt.Errorf("prepare auth.json backup: %w", err)
+	}
+	if err := os.Rename(p.AuthPath, backup); err != nil {
+		return "", fmt.Errorf("preserve untracked auth.json: %w", err)
+	}
+	return backup, nil
+}
+
+// reconcileLiveProfile makes the active marker agree with the files on disk
+// before a rotation. It only infers an owner when auth.json's hash matches
+// exactly one tracked profile; an unknown live credential must remain an
+// explicit capture/repair operation rather than being assigned accidentally.
+func reconcileLiveProfile(p *Paths, s *Store) error {
+	if s.Active != "" {
+		if fileExists(p.AuthPath) {
+			return nil
+		}
+		if fileExists(p.profileFile(s.Active)) {
+			s.Active = ""
+			return nil
+		}
+		return fmt.Errorf("profile %q is marked active but has no live auth.json or parked auth file", s.Active)
+	}
+	if !fileExists(p.AuthPath) {
+		return nil
+	}
+
+	h, err := hashFile(p.AuthPath)
+	if err != nil {
+		return fmt.Errorf("hash auth.json: %w", err)
+	}
+	matched := ""
+	for _, name := range sortedNames(s) {
+		meta := s.Profiles[name]
+		matches := meta.SHA256 != "" && meta.SHA256 == h
+		if !matches && fileExists(p.profileFile(name)) {
+			storedHash, hashErr := hashFile(p.profileFile(name))
+			if hashErr != nil {
+				return fmt.Errorf("hash stored auth for %q: %w", name, hashErr)
+			}
+			matches = storedHash == h
+			if matches {
+				meta.SHA256 = storedHash
+			}
+		}
+		if matches {
+			if matched != "" {
+				return fmt.Errorf("auth.json matches multiple tracked profiles (%q and %q) — run `codex-rotate capture <name>` or `codex-rotate repair` first", matched, name)
+			}
+			matched = name
+		}
+	}
+	if matched == "" {
+		return fmt.Errorf("%w — run `codex-rotate capture <name>` or `codex-rotate park <name>` first", errUntrackedLiveAuth)
+	}
+	s.Active = matched
 	return nil
 }
 
@@ -282,15 +431,21 @@ func interactiveSwitch(p *Paths, s *Store) error {
 	return switchTo(p, s, names[idx-1])
 }
 
-// ---------- rename / nickname / describe ----------
+// ---------- rename / delete / nickname / describe ----------
 
 func cmdRename(p *Paths, s *Store, args []string) error {
 	if len(args) != 2 {
 		return fmt.Errorf("usage: codex-rotate rename <old-name> <new-name>")
 	}
 	oldName, newName := args[0], args[1]
+	if err := validateName(oldName); err != nil {
+		return err
+	}
 	if err := validateName(newName); err != nil {
 		return err
+	}
+	if oldName == newName {
+		return fmt.Errorf("old and new profile names are the same: %q", oldName)
 	}
 	meta, ok := s.Profiles[oldName]
 	if !ok {
@@ -299,12 +454,17 @@ func cmdRename(p *Paths, s *Store, args []string) error {
 	if _, exists := s.Profiles[newName]; exists {
 		return fmt.Errorf("a profile named %q already exists", newName)
 	}
+	dest := p.profileFile(newName)
+	if fileExists(dest) {
+		return fmt.Errorf("cannot rename to %q: stored auth file %s already exists", newName, dest)
+	}
 	if oldName != s.Active {
 		src := p.profileFile(oldName)
-		if fileExists(src) {
-			if err := os.Rename(src, p.profileFile(newName)); err != nil {
-				return fmt.Errorf("rename stored file: %w", err)
-			}
+		if !fileExists(src) {
+			return fmt.Errorf("profile %q has no stored auth file at %s — it may have been moved or edited outside codex-rotate", oldName, src)
+		}
+		if err := os.Rename(src, dest); err != nil {
+			return fmt.Errorf("rename stored file: %w", err)
 		}
 	} else {
 		s.Active = newName
@@ -317,6 +477,39 @@ func cmdRename(p *Paths, s *Store, args []string) error {
 		return err
 	}
 	fmt.Printf("Renamed %q → %q.\n", oldName, newName)
+	return nil
+}
+
+// cmdDelete removes a parked profile and its metadata. The active profile is
+// deliberately not deleted in place: auth.json is live credential material,
+// so the caller must park it first and then delete the parked profile. This
+// makes it difficult to erase the account currently in use by accident.
+func cmdDelete(p *Paths, s *Store, args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("usage: codex-rotate delete <name>")
+	}
+	name := args[0]
+	if err := validateName(name); err != nil {
+		return err
+	}
+	if _, ok := s.Profiles[name]; !ok {
+		return fmt.Errorf("no such profile %q", name)
+	}
+	if s.Active == name {
+		return fmt.Errorf("cannot delete active profile %q while it is live at %s — run `codex-rotate park %s` first, then delete it", name, p.AuthPath, name)
+	}
+
+	// A missing parked file can still leave useful metadata behind after a
+	// manual cleanup. Remove that stale profile record rather than making the
+	// user edit store.json by hand.
+	if err := os.Remove(p.profileFile(name)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("delete stored auth file: %w", err)
+	}
+	delete(s.Profiles, name)
+	if err := saveStore(p, s); err != nil {
+		return err
+	}
+	fmt.Printf("Deleted profile %q.\n", name)
 	return nil
 }
 
@@ -337,8 +530,8 @@ func cmdNickname(p *Paths, s *Store, args []string) error {
 }
 
 func cmdDescribe(p *Paths, s *Store, args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: codex-rotate describe <name> <description...>")
+	if len(args) < 1 {
+		return fmt.Errorf("usage: codex-rotate describe <name> [description...]")
 	}
 	meta, ok := s.Profiles[args[0]]
 	if !ok {
@@ -348,7 +541,11 @@ func cmdDescribe(p *Paths, s *Store, args []string) error {
 	if err := saveStore(p, s); err != nil {
 		return err
 	}
-	fmt.Printf("Description for %q updated.\n", args[0])
+	if meta.Description == "" {
+		fmt.Printf("Description for %q cleared.\n", args[0])
+	} else {
+		fmt.Printf("Description for %q updated.\n", args[0])
+	}
 	return nil
 }
 
