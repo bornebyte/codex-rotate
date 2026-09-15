@@ -25,6 +25,8 @@ Usage:
   codex-rotate rename <old> <new>               Rename a profile
   codex-rotate delete <name>                    Delete an inactive profile and its stored
                                                  credentials (park it first if active)
+  codex-rotate delete-expired                   Find profiles with expired auth tokens,
+                                                 show them, and confirm before deleting
   codex-rotate nickname <name> <nick...>        Set/replace a profile's nickname
   codex-rotate describe <name> [desc...]        Set/replace or clear a profile's description
   codex-rotate current                          Show details of the active profile
@@ -91,6 +93,8 @@ func main() {
 		err = cmdRename(paths, store, args)
 	case "delete", "del", "remove", "rm":
 		err = cmdDelete(paths, store, args)
+	case "delete-expired", "purge-expired":
+		err = cmdDeleteExpired(paths, store, args)
 	case "nickname", "nick":
 		err = cmdNickname(paths, store, args)
 	case "describe", "desc":

@@ -513,6 +513,63 @@ func cmdDelete(p *Paths, s *Store, args []string) error {
 	return nil
 }
 
+// cmdDeleteExpired finds profiles whose stored credentials are specifically
+// reported as expired by Codex, shows the complete deletion set, and asks for
+// confirmation before calling the same safe deletion path as `delete`.
+func cmdDeleteExpired(p *Paths, s *Store, args []string) error {
+	if len(args) != 0 {
+		return fmt.Errorf("usage: codex-rotate delete-expired")
+	}
+	if len(s.Profiles) == 0 {
+		fmt.Println("No profiles tracked yet.")
+		return nil
+	}
+
+	results, err := collectProfileStats(p, s, sortedNames(s))
+	if err != nil {
+		return err
+	}
+
+	var expired []string
+	for _, result := range results {
+		if !isExpiredAuthToken(result.Err) {
+			continue
+		}
+		if result.Name == s.Active {
+			return fmt.Errorf("profile %q has an expired auth token but is active — run `codex-rotate park %s` first; no profiles were deleted", result.Name, result.Name)
+		}
+		expired = append(expired, result.Name)
+	}
+
+	if len(expired) == 0 {
+		fmt.Println("No profiles with expired auth tokens found.")
+		return nil
+	}
+
+	fmt.Println("The following profiles have expired auth tokens and will be deleted:")
+	for _, name := range expired {
+		fmt.Printf("  - %s\n", name)
+	}
+	fmt.Print("Continue? [y/N] ")
+
+	answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	switch strings.ToLower(strings.TrimSpace(answer)) {
+	case "y", "yes":
+		for _, name := range expired {
+			if err := cmdDelete(p, s, []string{name}); err != nil {
+				return err
+			}
+		}
+	default:
+		fmt.Println("Cancelled.")
+	}
+	return nil
+}
+
+func isExpiredAuthToken(err error) bool {
+	return err != nil && strings.HasPrefix(summarizeAppServerError(err), "auth token expired —")
+}
+
 func cmdNickname(p *Paths, s *Store, args []string) error {
 	if len(args) < 2 {
 		return fmt.Errorf("usage: codex-rotate nickname <name> <nickname...>")
@@ -661,10 +718,6 @@ func renderTable(rows [][]tcell) {
 // against a *copy* of its auth.json; see appserver.go for the protocol
 // details and why that's safe to do concurrently for parked profiles too.
 func cmdStats(p *Paths, s *Store, args []string) error {
-	if _, err := exec.LookPath("codex"); err != nil {
-		return fmt.Errorf("`codex` CLI not found on PATH — stats needs it (read-only) to query each account's rate limits")
-	}
-
 	names := sortedNames(s)
 	if len(args) > 0 {
 		if _, ok := s.Profiles[args[0]]; !ok {
@@ -677,31 +730,10 @@ func cmdStats(p *Paths, s *Store, args []string) error {
 		return nil
 	}
 
-	type job struct{ name, path string }
-	jobs := make([]job, 0, len(names))
-	for _, n := range names {
-		path := p.profileFile(n)
-		if n == s.Active {
-			path = p.AuthPath
-		}
-		jobs = append(jobs, job{name: n, path: path})
+	results, err := collectProfileStats(p, s, names)
+	if err != nil {
+		return err
 	}
-
-	results := make([]*accountStats, len(jobs))
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, 4) // cap concurrent `codex app-server` processes
-	for i := range jobs {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-			defer cancel()
-			results[i] = fetchProfileStats(ctx, jobs[i].name, jobs[i].path)
-		}(i)
-	}
-	wg.Wait()
 
 	colorsEnabled := stdoutSupportsColor()
 
@@ -748,6 +780,43 @@ func cmdStats(p *Paths, s *Store, args []string) error {
 	fmt.Println("⚠ = 90%+ used. LEFT is remaining quota, colored red at ≤10%, yellow at ≤30%, green otherwise (set NO_COLOR=1 to disable).")
 	fmt.Println("Each row briefly runs `codex app-server` against a copy of that profile's auth.json — nothing is switched or written back. STATUS errors reflect that profile's actual stored credentials (e.g. an expired token) — not a bug in this command.")
 	return nil
+}
+
+// collectProfileStats queries each profile concurrently, using the same
+// read-only app-server path as `stats`. Keeping this separate lets commands
+// that act on a particular status (such as `delete-expired`) use structured
+// results instead of parsing the rendered stats table.
+func collectProfileStats(p *Paths, s *Store, names []string) ([]*accountStats, error) {
+	if _, err := exec.LookPath("codex"); err != nil {
+		return nil, fmt.Errorf("`codex` CLI not found on PATH — stats needs it (read-only) to query each account's rate limits")
+	}
+
+	type job struct{ name, path string }
+	jobs := make([]job, 0, len(names))
+	for _, n := range names {
+		path := p.profileFile(n)
+		if n == s.Active {
+			path = p.AuthPath
+		}
+		jobs = append(jobs, job{name: n, path: path})
+	}
+
+	results := make([]*accountStats, len(jobs))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 4) // cap concurrent `codex app-server` processes
+	for i := range jobs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+			defer cancel()
+			results[i] = fetchProfileStats(ctx, jobs[i].name, jobs[i].path)
+		}(i)
+	}
+	wg.Wait()
+	return results, nil
 }
 
 // ---------- flag parsing helper ----------

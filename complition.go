@@ -81,7 +81,7 @@ func installBashCompletion() error {
 // It deliberately excludes `__profiles`, which exists only for these
 // scripts to call and was never meant to be typed or suggested.
 const commandWordsForCompletion = "list ls capture add import switch swap rotate use park rename mv " +
-	"delete del remove rm nickname nick describe desc current whoami repair stats usage quota completion help"
+	"delete del remove rm delete-expired purge-expired nickname nick describe desc current whoami repair stats usage quota completion help"
 
 // profileArgCommandWords are the subcommands whose very next argument is an
 // existing profile name — that's where `__profiles` output gets suggested.

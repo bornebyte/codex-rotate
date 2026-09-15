@@ -83,6 +83,7 @@ codex-rotate capture work
 | `park [name]` | Move the active profile's `auth.json` into storage and leave nothing active. Do this *before* running `codex login` again, so the outgoing session isn't clobbered. |
 | `rename <old> <new>` | Rename a profile, including its on-disk file if parked. |
 | `delete <name>` | Delete an inactive profile and its parked credentials. Park the profile first if it is active. |
+| `delete-expired` | Query every profile, list those with expired auth tokens, and ask for confirmation before deleting them. |
 | `nickname <name> <text>` | Set or replace a display nickname. |
 | `describe <name> [text]` | Set or replace a free-text description; omit the text to clear it. |
 | `current` | Show details of whichever profile is active right now. |
@@ -91,6 +92,8 @@ codex-rotate capture work
 | `completion <bash\|zsh\|fish>` | Print a shell completion script. `completion bash --install` enables Bash completion in one command. |
 
 Aliases: `ls`→`list`, `add`/`import`→`capture`, `rotate`/`use`→`switch`, `mv`→`rename`, `del`/`remove`/`rm`→`delete`, `nick`→`nickname`, `desc`→`describe`, `whoami`→`current`, `usage`/`quota`→`stats`. `swap` is the forgiving rotation command described above.
+
+`delete-expired` also accepts the alias `purge-expired`. It only targets profiles whose `stats` check reports an expired auth token, displays the full set first, and requires an explicit `y`/`yes` confirmation. An active profile must still be parked before it can be deleted.
 
 ### `stats`: quota without switching
 
