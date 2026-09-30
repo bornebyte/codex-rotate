@@ -36,6 +36,8 @@ Usage:
                                                  times), plan, and email for every
                                                  profile — or just one — without
                                                  switching into any of them
+  codex-rotate run [codex args...]               Run Codex and, after a usage limit,
+                                                 ask to switch profiles and resume
   codex-rotate completion <bash|zsh|fish>       Print a shell completion script
   codex-rotate completion bash --install        Add Bash completion to ~/.bashrc
   codex-rotate help                             Show this message
@@ -105,6 +107,8 @@ func main() {
 		err = cmdRepair(paths, store)
 	case "stats", "usage", "quota":
 		err = cmdStats(paths, store, args)
+	case "run":
+		err = cmdRun(paths, store, args)
 	case "__profiles": // internal: used by the shell completion scripts only
 		err = cmdProfileNames(store)
 	default:

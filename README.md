@@ -89,11 +89,38 @@ codex-rotate capture work
 | `current` | Show details of whichever profile is active right now. |
 | `repair` | If `auth.json` was changed outside this tool (e.g. a manual `codex login` refreshed the same account's token) and `list`/`current` report drift, run this to accept the new content as that profile's current state. |
 | `stats [name]` | Show live quota — 5-hour and weekly used%, reset times, plan, and email — for every tracked profile, or just one. No switching involved; see below for how. |
+| `run [codex args...]` | Run Codex normally. If Codex stops because of a usage/rate limit, ask whether to switch to another parked profile and resume the same session. |
 | `completion <bash\|zsh\|fish>` | Print a shell completion script. `completion bash --install` enables Bash completion in one command. |
 
 Aliases: `ls`→`list`, `add`/`import`→`capture`, `rotate`/`use`→`switch`, `mv`→`rename`, `del`/`remove`/`rm`→`delete`, `nick`→`nickname`, `desc`→`describe`, `whoami`→`current`, `usage`/`quota`→`stats`. `swap` is the forgiving rotation command described above.
 
 `delete-expired` also accepts the alias `purge-expired`. It only targets profiles whose `stats` check reports an expired auth token, displays the full set first, and requires an explicit `y`/`yes` confirmation. An active profile must still be parked before it can be deleted.
+
+### `run`: resume after a usage limit
+
+Use `run` as the entry point when you want a Codex session to offer profile
+failover instead of ending at the first usage limit:
+
+```bash
+# Interactive Codex session:
+codex-rotate run
+
+# Non-interactive Codex session:
+codex-rotate run exec "Finish the task and run the tests"
+```
+
+The command streams Codex output unchanged. If Codex reports a rate or usage
+limit, `codex-rotate` asks for confirmation, lists every other profile with a
+stored credential, safely swaps the selected profile into `auth.json`, and
+resumes the saved session (`codex resume` for interactive sessions or
+`codex exec resume` for `exec`). If the run was started with `--json`, its
+thread ID is used so the exact non-interactive session is resumed; otherwise
+Codex's `--last` selection is used. `--ephemeral` sessions cannot be resumed,
+so they stop with an explanation instead.
+
+This feature rotates account profiles, not Codex's model catalog. Use Codex's
+normal `-m/--model` option in the command after `run` when you also want to
+choose a specific model.
 
 ### `stats`: quota without switching
 
