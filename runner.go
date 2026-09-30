@@ -34,10 +34,10 @@ func cmdRun(p *Paths, s *Store, args []string) error {
 		return fmt.Errorf("`codex` CLI not found on PATH")
 	}
 	if s.Active == "" {
-		return fmt.Errorf("no active profile — run `codex-rotate switch <name>` first")
+		return fmt.Errorf("no active profile — run `cx switch <name>` first")
 	}
 	if len(args) > 0 && isUnsupportedRunCommand(args[0]) {
-		return fmt.Errorf("`codex-rotate run` supports the interactive CLI and `codex exec`; it cannot resume `codex %s` automatically", args[0])
+		return fmt.Errorf("`cx run` supports the interactive CLI and `codex exec`; it cannot resume `codex %s` automatically", args[0])
 	}
 
 	currentArgs := append([]string(nil), args...)
@@ -300,7 +300,7 @@ func promptForProfileSwitch(p *Paths, s *Store, current string, input io.Reader,
 	}
 	if len(names) == 0 {
 		fmt.Fprintf(output, "\nCodex stopped with a possible usage/rate limit for profile %q, but no other parked profiles are available.\n", current)
-		fmt.Fprintln(output, "Run `codex-rotate stats` later, or add another profile before retrying.")
+		fmt.Fprintln(output, "Run `cx stats` later, or add another profile before retrying.")
 		return false, "", nil
 	}
 

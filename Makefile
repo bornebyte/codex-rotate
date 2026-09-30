@@ -1,4 +1,4 @@
-BINARY := codex-rotate
+BINARY := cx
 PREFIX ?= /usr/local/bin
 
 .PHONY: build install uninstall fmt vet clean

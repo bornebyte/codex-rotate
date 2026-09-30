@@ -16,7 +16,7 @@ import (
 
 // ---------- app-server JSON-RPC client ----------
 //
-// `codex-rotate stats` needs live quota numbers (used%, reset time) for
+// `cx stats` needs live quota numbers (used%, reset time) for
 // every profile, including ones that are currently parked. That data lives
 // behind the same backend the Codex CLI's own `/status` hits, and the only
 // *local* way to reach it — short of reverse-engineering an HTTP endpoint —
@@ -175,7 +175,7 @@ type rateLimitsResult struct {
 	} `json:"rateLimits"`
 }
 
-// accountStats is one row of `codex-rotate stats` output.
+// accountStats is one row of `cx stats` output.
 type accountStats struct {
 	Name      string
 	Email     string
@@ -228,7 +228,7 @@ func fetchProfileStats(ctx context.Context, name, authFile string) *accountStats
 		return stats
 	}
 
-	scratch, err := os.MkdirTemp("", "codex-rotate-stats-*")
+	scratch, err := os.MkdirTemp("", "cx-stats-*")
 	if err != nil {
 		stats.Err = fmt.Errorf("create scratch dir: %w", err)
 		return stats
@@ -249,8 +249,8 @@ func fetchProfileStats(ctx context.Context, name, authFile string) *accountStats
 
 	if _, err := client.call("initialize", map[string]interface{}{
 		"clientInfo": map[string]interface{}{
-			"name":    "codex-rotate",
-			"title":   "codex-rotate stats",
+			"name":    "cx",
+			"title":   "cx stats",
 			"version": "0.1.0",
 		},
 	}); err != nil {
@@ -409,7 +409,7 @@ func remainingCell(w *rateLimitWindow, colorsEnabled bool) tcell {
 // which is exactly what you want in a log but unreadable jammed into a
 // table's STATUS column. Known authentication failures (an expired or
 // unparsable stored token — the most common real-world cause, since
-// codex-rotate only ever reads a profile's stored auth.json and can't
+// cx only ever reads a profile's stored auth.json and can't
 // refresh it for you) get a plain-English, actionable message. Anything
 // else is collapsed onto one line and capped in length so a single bad
 // row can't blow out the whole table's width.

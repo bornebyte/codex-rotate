@@ -52,7 +52,7 @@ type Paths struct {
 // codex binary reads CODEX_HOME if present — appserver.go relies on
 // exactly that to sandbox each profile's stats check into a scratch dir —
 // so if resolvePaths ignored it here too, anyone with CODEX_HOME set would
-// have codex-rotate silently managing a different auth.json than the one
+// have cx silently managing a different auth.json than the one
 // `codex` actually reads, with no error to signal the mismatch.
 func resolvePaths() (*Paths, error) {
 	codexDir := os.Getenv("CODEX_HOME")

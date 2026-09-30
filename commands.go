@@ -26,7 +26,7 @@ func cmdList(p *Paths, s *Store) error {
 		fmt.Println("No profiles tracked yet.")
 		fmt.Println()
 		fmt.Println("If you're already logged in (~/.codex/auth.json exists), run:")
-		fmt.Println("  codex-rotate capture <name>")
+		fmt.Println("  cx capture <name>")
 		return nil
 	}
 
@@ -50,7 +50,7 @@ func cmdList(p *Paths, s *Store) error {
 	if s.Active != "" {
 		fmt.Printf("\n* = active (%s)\n", s.Active)
 	} else {
-		fmt.Println("\nNo profile is currently active. Run `codex-rotate switch <name>`.")
+		fmt.Println("\nNo profile is currently active. Run `cx switch <name>`.")
 	}
 	return nil
 }
@@ -72,8 +72,8 @@ func checkDrift(p *Paths, s *Store) {
 	}
 	fmt.Println("⚠  auth.json no longer matches the tracked profile", strconv.Quote(s.Active)+".")
 	fmt.Println("   Looks like `codex login` was run by hand and overwrote it in place.")
-	fmt.Println("   - If this IS still", s.Active, "(e.g. a token refresh), run: codex-rotate repair")
-	fmt.Println("   - If this is a NEW account, run:                        codex-rotate capture <new-name>")
+	fmt.Println("   - If this IS still", s.Active, "(e.g. a token refresh), run: cx repair")
+	fmt.Println("   - If this is a NEW account, run:                        cx capture <new-name>")
 	fmt.Println()
 }
 
@@ -104,11 +104,11 @@ func cmdCapture(p *Paths, s *Store, args []string) error {
 	if s.Active != "" && s.Active != name {
 		return fmt.Errorf(
 			"profile %q is currently active — capturing now would treat its live session as %q.\n"+
-				"Run `codex-rotate park` first (moves %q safely into storage), then log in and capture again",
+				"Run `cx park` first (moves %q safely into storage), then log in and capture again",
 			s.Active, name, s.Active)
 	}
 	if _, exists := s.Profiles[name]; exists && s.Active != name {
-		return fmt.Errorf("profile %q already exists — pick another name or use `codex-rotate switch %s`", name, name)
+		return fmt.Errorf("profile %q already exists — pick another name or use `cx switch %s`", name, name)
 	}
 
 	hash, err := hashFile(p.AuthPath)
@@ -149,7 +149,7 @@ func cmdPark(p *Paths, s *Store, args []string) error {
 	if name == "" {
 		if fileExists(p.AuthPath) {
 			return fmt.Errorf("auth.json exists but isn't tracked yet.\n" +
-				"Run `codex-rotate capture <name>` to register it, or `codex-rotate park <name>` to register-and-park in one step")
+				"Run `cx capture <name>` to register it, or `cx park <name>` to register-and-park in one step")
 		}
 		return fmt.Errorf("no active profile to park")
 	}
@@ -204,7 +204,7 @@ func doPark(p *Paths, s *Store, name string) error {
 
 func cmdSwitch(p *Paths, s *Store, args []string) error {
 	if len(args) > 1 {
-		return fmt.Errorf("usage: codex-rotate switch [name]")
+		return fmt.Errorf("usage: cx switch [name]")
 	}
 	if len(args) == 0 {
 		return interactiveSwitch(p, s)
@@ -218,7 +218,7 @@ func cmdSwitch(p *Paths, s *Store, args []string) error {
 // command explicit makes that behavior easy to test and document.
 func cmdSwap(p *Paths, s *Store, args []string) error {
 	if len(args) > 1 {
-		return fmt.Errorf("usage: codex-rotate swap [name]")
+		return fmt.Errorf("usage: cx swap [name]")
 	}
 	if len(args) == 0 {
 		return interactiveSwitch(p, s)
@@ -241,7 +241,7 @@ func swapTo(p *Paths, s *Store, name string) error {
 func rotateTo(p *Paths, s *Store, name string, allowUntrackedLive bool) error {
 	meta, ok := s.Profiles[name]
 	if !ok {
-		return fmt.Errorf("no such profile %q — run `codex-rotate list`", name)
+		return fmt.Errorf("no such profile %q — run `cx list`", name)
 	}
 	if s.Active == name && fileExists(p.AuthPath) {
 		fmt.Printf("%q is already active.\n", name)
@@ -249,7 +249,7 @@ func rotateTo(p *Paths, s *Store, name string, allowUntrackedLive bool) error {
 	}
 	src := p.profileFile(name)
 	if !fileExists(src) {
-		return fmt.Errorf("profile %q has no stored auth file at %s — it may have been moved or edited outside codex-rotate", name, src)
+		return fmt.Errorf("profile %q has no stored auth file at %s — it may have been moved or edited outside cx", name, src)
 	}
 	targetHash, err := hashFile(src)
 	if err != nil {
@@ -325,7 +325,7 @@ func rotateTo(p *Paths, s *Store, name string, allowUntrackedLive bool) error {
 // assigning unknown credentials to a named account would be worse than asking
 // the user to capture them later.
 func preserveUntrackedAuth(p *Paths) (string, error) {
-	f, err := os.CreateTemp(p.ProfilesDir, ".codex-rotate-untracked-auth-*.json")
+	f, err := os.CreateTemp(p.ProfilesDir, ".cx-untracked-auth-*.json")
 	if err != nil {
 		return "", fmt.Errorf("create auth.json backup: %w", err)
 	}
@@ -382,13 +382,13 @@ func reconcileLiveProfile(p *Paths, s *Store) error {
 		}
 		if matches {
 			if matched != "" {
-				return fmt.Errorf("auth.json matches multiple tracked profiles (%q and %q) — run `codex-rotate capture <name>` or `codex-rotate repair` first", matched, name)
+				return fmt.Errorf("auth.json matches multiple tracked profiles (%q and %q) — run `cx capture <name>` or `cx repair` first", matched, name)
 			}
 			matched = name
 		}
 	}
 	if matched == "" {
-		return fmt.Errorf("%w — run `codex-rotate capture <name>` or `codex-rotate park <name>` first", errUntrackedLiveAuth)
+		return fmt.Errorf("%w — run `cx capture <name>` or `cx park <name>` first", errUntrackedLiveAuth)
 	}
 	s.Active = matched
 	return nil
@@ -397,7 +397,7 @@ func reconcileLiveProfile(p *Paths, s *Store) error {
 func interactiveSwitch(p *Paths, s *Store) error {
 	names := sortedNames(s)
 	if len(names) == 0 {
-		return fmt.Errorf("no profiles registered yet — run `codex-rotate capture <name>` first")
+		return fmt.Errorf("no profiles registered yet — run `cx capture <name>` first")
 	}
 	fmt.Println("Available profiles:")
 	for i, n := range names {
@@ -435,7 +435,7 @@ func interactiveSwitch(p *Paths, s *Store) error {
 
 func cmdRename(p *Paths, s *Store, args []string) error {
 	if len(args) != 2 {
-		return fmt.Errorf("usage: codex-rotate rename <old-name> <new-name>")
+		return fmt.Errorf("usage: cx rename <old-name> <new-name>")
 	}
 	oldName, newName := args[0], args[1]
 	if err := validateName(oldName); err != nil {
@@ -461,7 +461,7 @@ func cmdRename(p *Paths, s *Store, args []string) error {
 	if oldName != s.Active {
 		src := p.profileFile(oldName)
 		if !fileExists(src) {
-			return fmt.Errorf("profile %q has no stored auth file at %s — it may have been moved or edited outside codex-rotate", oldName, src)
+			return fmt.Errorf("profile %q has no stored auth file at %s — it may have been moved or edited outside cx", oldName, src)
 		}
 		if err := os.Rename(src, dest); err != nil {
 			return fmt.Errorf("rename stored file: %w", err)
@@ -486,7 +486,7 @@ func cmdRename(p *Paths, s *Store, args []string) error {
 // makes it difficult to erase the account currently in use by accident.
 func cmdDelete(p *Paths, s *Store, args []string) error {
 	if len(args) != 1 {
-		return fmt.Errorf("usage: codex-rotate delete <name>")
+		return fmt.Errorf("usage: cx delete <name>")
 	}
 	name := args[0]
 	if err := validateName(name); err != nil {
@@ -496,7 +496,7 @@ func cmdDelete(p *Paths, s *Store, args []string) error {
 		return fmt.Errorf("no such profile %q", name)
 	}
 	if s.Active == name {
-		return fmt.Errorf("cannot delete active profile %q while it is live at %s — run `codex-rotate park %s` first, then delete it", name, p.AuthPath, name)
+		return fmt.Errorf("cannot delete active profile %q while it is live at %s — run `cx park %s` first, then delete it", name, p.AuthPath, name)
 	}
 
 	// A missing parked file can still leave useful metadata behind after a
@@ -518,7 +518,7 @@ func cmdDelete(p *Paths, s *Store, args []string) error {
 // confirmation before calling the same safe deletion path as `delete`.
 func cmdDeleteExpired(p *Paths, s *Store, args []string) error {
 	if len(args) != 0 {
-		return fmt.Errorf("usage: codex-rotate delete-expired")
+		return fmt.Errorf("usage: cx delete-expired")
 	}
 	if len(s.Profiles) == 0 {
 		fmt.Println("No profiles tracked yet.")
@@ -536,7 +536,7 @@ func cmdDeleteExpired(p *Paths, s *Store, args []string) error {
 			continue
 		}
 		if result.Name == s.Active {
-			return fmt.Errorf("profile %q has an expired auth token but is active — run `codex-rotate park %s` first; no profiles were deleted", result.Name, result.Name)
+			return fmt.Errorf("profile %q has an expired auth token but is active — run `cx park %s` first; no profiles were deleted", result.Name, result.Name)
 		}
 		expired = append(expired, result.Name)
 	}
@@ -572,7 +572,7 @@ func isExpiredAuthToken(err error) bool {
 
 func cmdNickname(p *Paths, s *Store, args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: codex-rotate nickname <name> <nickname...>")
+		return fmt.Errorf("usage: cx nickname <name> <nickname...>")
 	}
 	meta, ok := s.Profiles[args[0]]
 	if !ok {
@@ -588,7 +588,7 @@ func cmdNickname(p *Paths, s *Store, args []string) error {
 
 func cmdDescribe(p *Paths, s *Store, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: codex-rotate describe <name> [description...]")
+		return fmt.Errorf("usage: cx describe <name> [description...]")
 	}
 	meta, ok := s.Profiles[args[0]]
 	if !ok {
@@ -721,7 +721,7 @@ func cmdStats(p *Paths, s *Store, args []string) error {
 	names := sortedNames(s)
 	if len(args) > 0 {
 		if _, ok := s.Profiles[args[0]]; !ok {
-			return fmt.Errorf("no such profile %q — run `codex-rotate list`", args[0])
+			return fmt.Errorf("no such profile %q — run `cx list`", args[0])
 		}
 		names = []string{args[0]}
 	}
@@ -824,7 +824,7 @@ func collectProfileStats(p *Paths, s *Store, names []string) ([]*accountStats, e
 // parseNameAndFlags handles: capture <name> [-n|--nickname X] [-d|--description Y]
 func parseNameAndFlags(args []string) (name, nickname, description string, err error) {
 	if len(args) == 0 {
-		return "", "", "", fmt.Errorf("usage: codex-rotate capture <name> [-n nickname] [-d description]")
+		return "", "", "", fmt.Errorf("usage: cx capture <name> [-n nickname] [-d description]")
 	}
 	name = args[0]
 	rest := args[1:]

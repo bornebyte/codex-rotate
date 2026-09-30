@@ -1,11 +1,11 @@
-# codex-rotate
+# cx
 
 A small, dependency-free Go CLI for rotating between multiple [OpenAI Codex CLI](https://github.com/openai/codex) accounts on the same machine.
 
-If you juggle several Codex accounts and switch to a fresh one whenever the current one hits its usage quota, `codex-rotate` keeps every account's `auth.json` safely on disk, lets you label them, and swaps the active one in and out with a single command. You can rename, describe, or explicitly delete profiles too.
+If you juggle several Codex accounts and switch to a fresh one whenever the current one hits its usage quota, `cx` keeps every account's `auth.json` safely on disk, lets you label them, and swaps the active one in and out with a single command. You can rename, describe, or explicitly delete profiles too.
 
 ```
-$ codex-rotate list
+$ cx list
   NAME    NICKNAME     ADDED       LAST USED   DESCRIPTION
 * work    Work acct    2026-07-01  2 days ago  Company-issued seat
   alt-1   Personal 1   2026-07-14  9 days ago  Free tier, resets monthly
@@ -24,7 +24,7 @@ than one account, the naive workflow is:
    session is gone unless you'd copied it somewhere first.
 3. Repeat, and hope you remember which backup file was which account.
 
-`codex-rotate` formalizes step 2: it parks the outgoing account's
+`cx` formalizes step 2: it parks the outgoing account's
 `auth.json` into `~/.codex/profiles/<name>.json` and restores the incoming
 one in its place — an atomic rename in each direction, never a copy or an
 implicit delete.
@@ -36,8 +36,8 @@ Requires Go 1.22+.
 ```bash
 git clone https://github.com/bornebyte/codex-rotate.git
 cd codex-rotate
-go build -o codex-rotate .
-sudo mv codex-rotate /usr/local/bin/        # or anywhere on your $PATH
+go build -o cx .
+sudo mv cx /usr/local/bin/        # or anywhere on your $PATH
 ```
 
 Or, without cloning:
@@ -50,26 +50,26 @@ go install github.com/bornebyte/codex-rotate@latest
 
 ```bash
 # You're already logged in via `codex login`. Register that session:
-codex-rotate capture work --nickname "Work acct" --description "Company-issued seat"
+cx capture work --nickname "Work acct" --description "Company-issued seat"
 
 # Hit a quota limit. Park it, log into another account, capture that too:
-codex-rotate park
+cx park
 codex login
-codex-rotate capture alt-1 -n "Personal 1"
+cx capture alt-1 -n "Personal 1"
 
 # See everything you have:
-codex-rotate list
+cx list
 
 # Check remaining quota and reset times for every account, no switching required:
-codex-rotate stats
+cx stats
 
 # Rotate back to "work" later (interactive picker if you omit the name):
-codex-rotate switch work
+cx switch work
 
 # If work's token expires, bring it back, log in again, and update the same profile:
-codex-rotate switch work
+cx switch work
 codex login
-codex-rotate capture work
+cx capture work
 ```
 
 ## Commands
@@ -103,14 +103,14 @@ failover instead of ending at the first usage limit:
 
 ```bash
 # Interactive Codex session:
-codex-rotate run
+cx run
 
 # Non-interactive Codex session:
-codex-rotate run exec "Finish the task and run the tests"
+cx run exec "Finish the task and run the tests"
 ```
 
 The command streams Codex output unchanged. If Codex reports a rate or usage
-limit, `codex-rotate` asks for confirmation, lists every other profile with a
+limit, `cx` asks for confirmation, lists every other profile with a
 stored credential, safely swaps the selected profile into `auth.json`, and
 resumes the saved session (`codex resume` for interactive sessions or
 `codex exec resume` for `exec`). If the run was started with `--json`, its
@@ -125,7 +125,7 @@ choose a specific model.
 ### `stats`: quota without switching
 
 ```
-$ codex-rotate stats
+$ cx stats
   NAME    EMAIL               PLAN  PRIMARY USED  PRIMARY LEFT  PRIMARY RESETS                     SECONDARY USED  SECONDARY LEFT  SECONDARY RESETS  STATUS
 * work    user1@example.com  pro   69%           31%           2h14m (Sep 14 18:00) [5h window]    55%             45%             6h02m (Sep 21 00:34) [7d window]  ok
   alt-1   user2@example.com  go    ⚠ 100%        0%            345h55m (Sep 29 10:00) [30d window]  -               -               -                 ok
@@ -149,8 +149,8 @@ printed either way, so no information is lost — just the color.
 
 A `STATUS` error means exactly what it says about *that profile's stored
 credentials* — most commonly an expired or invalid token — not a bug in
-`stats` itself. Fix it the same way you'd fix drift: `codex-rotate switch
-<name>` to bring it live, `codex login` to refresh it, then `codex-rotate
+`stats` itself. Fix it the same way you'd fix drift: `cx switch
+<name>` to bring it live, `codex login` to refresh it, then `cx
 capture <name>` again to re-record it.
 
 Previously the only way to see this was to `switch` into every account and
@@ -177,37 +177,37 @@ comments in `appserver.go` for exactly which fields it expects.
 
 ## Shell completion
 
-`codex-rotate completion <shell>` prints a completion script for bash, zsh,
+`cx completion <shell>` prints a completion script for bash, zsh,
 or fish. Every script dynamically completes profile names for `switch`,
 `swap`, `park`, `rename`, `delete`, `nickname`, `describe`, and `stats` by shelling out to a
-hidden `codex-rotate __profiles` subcommand (one name per line, no
+hidden `cx __profiles` subcommand (one name per line, no
 formatting) — so `switch <TAB>` completes to your actual profiles, not just
 the word "switch".
 
 **bash** — either add to `~/.bashrc`:
 
 ```bash
-eval "$(codex-rotate completion bash)"
+eval "$(cx completion bash)"
 ```
 
 Or enable it in one command. This appends the same line to `~/.bashrc` and
 does not add a duplicate if it is already present:
 
 ```bash
-codex-rotate completion bash --install
+cx completion bash --install
 ```
 
 or install it system-wide (picked up automatically by bash-completion):
 
 ```bash
-codex-rotate completion bash | sudo tee /etc/bash_completion.d/codex-rotate
+cx completion bash | sudo tee /etc/bash_completion.d/cx
 ```
 
-**zsh** — save it as a file named `_codex-rotate` somewhere in your
+**zsh** — save it as a file named `_cx` somewhere in your
 `$fpath`, then start a new shell:
 
 ```bash
-codex-rotate completion zsh > "${fpath[1]}/_codex-rotate"
+cx completion zsh > "${fpath[1]}/_cx"
 ```
 
 If completions don't show up, your `~/.zshrc` may not be running
@@ -217,11 +217,11 @@ If completions don't show up, your `~/.zshrc` may not be running
 is a one-time step:
 
 ```fish
-codex-rotate completion fish > ~/.config/fish/completions/codex-rotate.fish
+cx completion fish > ~/.config/fish/completions/cx.fish
 ```
 
-After installing, `codex-rotate swi<TAB>` completes to `switch`, and
-`codex-rotate switch <TAB>` completes to your tracked profile names.
+After installing, `cx swi<TAB>` completes to `switch`, and
+`cx switch <TAB>` completes to your tracked profile names.
 
 ## How it works
 
@@ -259,7 +259,7 @@ inside it for testing.
 
 ## Safety notes
 
-- `codex-rotate` only removes credential bytes when you explicitly run
+- `cx` only removes credential bytes when you explicitly run
   `delete`. The active profile cannot be deleted directly; park it first,
   then delete the parked profile. Normal switching only renames files between
   `auth.json` and `profiles/<name>.json`.

@@ -281,7 +281,7 @@ func TestSwapPreservesUnknownLiveAuthWithoutActiveMarker(t *testing.T) {
 	}
 	foundBackup := false
 	for _, entry := range entries {
-		if len(entry.Name()) < len(".codex-rotate-untracked-auth-") || entry.Name()[:len(".codex-rotate-untracked-auth-")] != ".codex-rotate-untracked-auth-" {
+		if len(entry.Name()) < len(".cx-untracked-auth-") || entry.Name()[:len(".cx-untracked-auth-")] != ".cx-untracked-auth-" {
 			continue
 		}
 		got, readErr := os.ReadFile(filepath.Join(p.ProfilesDir, entry.Name()))
